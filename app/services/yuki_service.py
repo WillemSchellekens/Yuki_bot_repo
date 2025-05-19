@@ -2,23 +2,48 @@ import requests
 from zeep import Client, Settings
 from zeep.transports import Transport
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from app.core.config import get_settings
 import os
+from dataclasses import dataclass
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+@dataclass
+class TransactionDetails:
+    transaction_id: str
+    date: datetime
+    description: str
+    amount: Decimal
+    gl_account_code: str
+    vat_code: Optional[str] = None
+    vat_amount: Optional[Decimal] = None
+    document_id: Optional[str] = None
 
 class YukiService:
     def __init__(self, administration_id: str):
         self.administration_id = administration_id
         self.upload_url = f"{settings.YUKI_API_URL}/Upload.aspx"
         self.accounting_url = f"{settings.YUKI_API_URL}/Accounting.asmx?WSDL"
+        self.archive_url = f"{settings.YUKI_API_URL}/Archive.asmx?WSDL"
+        self.contact_url = f"{settings.YUKI_API_URL}/Contact.asmx?WSDL"
         
-        # Initialize SOAP client
-        self.soap_client = Client(
+        # Initialize SOAP clients
+        self.accounting_client = Client(
             self.accounting_url,
+            transport=Transport(timeout=30),
+            settings=Settings(strict=False)
+        )
+        self.archive_client = Client(
+            self.archive_url,
+            transport=Transport(timeout=30),
+            settings=Settings(strict=False)
+        )
+        self.contact_client = Client(
+            self.contact_url,
             transport=Transport(timeout=30),
             settings=Settings(strict=False)
         )
@@ -56,9 +81,6 @@ class YukiService:
                 )
                 
                 response.raise_for_status()
-                
-                # Parse response to get document ID
-                # Note: Actual response format may vary, adjust parsing accordingly
                 return response.text.strip()
                 
         except Exception as e:
@@ -77,7 +99,6 @@ class YukiService:
             Booking ID from Yuki
         """
         try:
-            # Prepare the booking data
             booking_data = {
                 'AdministrationID': self.administration_id,
                 'DocumentID': document_id,
@@ -107,40 +128,180 @@ class YukiService:
                     'VATAmount': 0
                 })
             
-            # Create the booking
-            result = self.soap_client.service.CreateBooking(booking_data)
-            
-            # Parse response to get booking ID
-            # Note: Actual response format may vary, adjust parsing accordingly
+            result = self.accounting_client.service.CreateBooking(booking_data)
             return result
             
         except Exception as e:
             logger.error(f"Error creating accounting entry in Yuki: {str(e)}")
             raise
+
+    def get_transaction_details(self, transaction_id: str) -> TransactionDetails:
+        """
+        Get detailed information about a specific transaction.
+        
+        Args:
+            transaction_id: The ID of the transaction
             
-    def get_administrations(self) -> list:
+        Returns:
+            TransactionDetails object with transaction information
+        """
+        try:
+            result = self.accounting_client.service.GetTransactionDetails(
+                self.administration_id,
+                transaction_id
+            )
+            
+            return TransactionDetails(
+                transaction_id=result.TransactionID,
+                date=datetime.strptime(result.Date, '%Y-%m-%d'),
+                description=result.Description,
+                amount=Decimal(str(result.Amount)),
+                gl_account_code=result.GLAccountCode,
+                vat_code=result.VATCode,
+                vat_amount=Decimal(str(result.VATAmount)) if result.VATAmount else None,
+                document_id=result.DocumentID
+            )
+        except Exception as e:
+            logger.error(f"Error getting transaction details: {str(e)}")
+            raise
+
+    def get_transaction_document(self, transaction_id: str) -> bytes:
+        """
+        Get the document associated with a transaction.
+        
+        Args:
+            transaction_id: The ID of the transaction
+            
+        Returns:
+            Document binary data
+        """
+        try:
+            result = self.accounting_client.service.GetTransactionDocument(
+                self.administration_id,
+                transaction_id
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error getting transaction document: {str(e)}")
+            raise
+
+    def get_gl_account_scheme(self) -> List[Dict[str, Any]]:
+        """
+        Get the complete GL account scheme.
+        
+        Returns:
+            List of GL accounts with their hierarchy
+        """
+        try:
+            result = self.accounting_client.service.GetGLAccountScheme(self.administration_id)
+            return result
+        except Exception as e:
+            logger.error(f"Error getting GL account scheme: {str(e)}")
+            raise
+
+    def get_start_balance_by_gl_account(self, gl_account_code: str) -> Decimal:
+        """
+        Get the start balance for a specific GL account.
+        
+        Args:
+            gl_account_code: The GL account code
+            
+        Returns:
+            Start balance as Decimal
+        """
+        try:
+            result = self.accounting_client.service.GetStartBalanceByGLAccount(
+                self.administration_id,
+                gl_account_code
+            )
+            return Decimal(str(result))
+        except Exception as e:
+            logger.error(f"Error getting start balance: {str(e)}")
+            raise
+
+    def search_documents(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Search for documents in the archive.
+        
+        Args:
+            query: Search parameters (date range, type, etc.)
+            
+        Returns:
+            List of matching documents
+        """
+        try:
+            result = self.archive_client.service.SearchDocuments(
+                self.administration_id,
+                query
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error searching documents: {str(e)}")
+            raise
+
+    def get_document_binary_data(self, document_id: str) -> bytes:
+        """
+        Get the binary data of a document.
+        
+        Args:
+            document_id: The ID of the document
+            
+        Returns:
+            Document binary data
+        """
+        try:
+            result = self.archive_client.service.DocumentBinaryData(
+                self.administration_id,
+                document_id
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error getting document binary data: {str(e)}")
+            raise
+
+    def search_contacts(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Search for contacts.
+        
+        Args:
+            query: Search parameters (name, email, etc.)
+            
+        Returns:
+            List of matching contacts
+        """
+        try:
+            result = self.contact_client.service.SearchContacts(
+                self.administration_id,
+                query
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error searching contacts: {str(e)}")
+            raise
+
+    def get_administrations(self) -> List[Dict[str, Any]]:
         """Get list of available administrations."""
         try:
-            result = self.soap_client.service.GetAdministrations()
+            result = self.accounting_client.service.GetAdministrations()
             return result
         except Exception as e:
-            logger.error(f"Error getting administrations from Yuki: {str(e)}")
+            logger.error(f"Error getting administrations: {str(e)}")
             raise
             
-    def get_gl_accounts(self) -> list:
+    def get_gl_accounts(self) -> List[Dict[str, Any]]:
         """Get list of GL accounts."""
         try:
-            result = self.soap_client.service.GetGLAccounts(self.administration_id)
+            result = self.accounting_client.service.GetGLAccounts(self.administration_id)
             return result
         except Exception as e:
-            logger.error(f"Error getting GL accounts from Yuki: {str(e)}")
+            logger.error(f"Error getting GL accounts: {str(e)}")
             raise
             
-    def get_vat_codes(self) -> list:
+    def get_vat_codes(self) -> List[Dict[str, Any]]:
         """Get list of VAT codes."""
         try:
-            result = self.soap_client.service.GetVATCodes(self.administration_id)
+            result = self.accounting_client.service.GetVATCodes(self.administration_id)
             return result
         except Exception as e:
-            logger.error(f"Error getting VAT codes from Yuki: {str(e)}")
+            logger.error(f"Error getting VAT codes: {str(e)}")
             raise 
