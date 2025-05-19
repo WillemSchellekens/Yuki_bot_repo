@@ -8,9 +8,15 @@ from app.core.config import get_settings
 import os
 from dataclasses import dataclass
 from decimal import Decimal
+from requests.exceptions import RequestException
+from zeep.exceptions import Fault, TransportError
+import time
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
+
+class YukiConnectionError(Exception):
+    """Custom exception for Yuki API connection errors"""
+    pass
 
 @dataclass
 class TransactionDetails:
@@ -24,29 +30,45 @@ class TransactionDetails:
     document_id: Optional[str] = None
 
 class YukiService:
-    def __init__(self, administration_id: str):
+    def __init__(self, administration_id: str, max_retries: int = 3, retry_delay: int = 1):
+        self.settings = get_settings()
         self.administration_id = administration_id
-        self.upload_url = f"{settings.YUKI_API_URL}/Upload.aspx"
-        self.accounting_url = f"{settings.YUKI_API_URL}/Accounting.asmx?WSDL"
-        self.archive_url = f"{settings.YUKI_API_URL}/Archive.asmx?WSDL"
-        self.contact_url = f"{settings.YUKI_API_URL}/Contact.asmx?WSDL"
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.upload_url = f"{self.settings.YUKI_API_URL}/Upload.aspx"
+        self.accounting_url = f"{self.settings.YUKI_API_URL}/Accounting.asmx?WSDL"
+        self.archive_url = f"{self.settings.YUKI_API_URL}/Archive.asmx?WSDL"
+        self.contact_url = f"{self.settings.YUKI_API_URL}/Contact.asmx?WSDL"
         
-        # Initialize SOAP clients
-        self.accounting_client = Client(
-            self.accounting_url,
-            transport=Transport(timeout=30),
-            settings=Settings(strict=False)
-        )
-        self.archive_client = Client(
-            self.archive_url,
-            transport=Transport(timeout=30),
-            settings=Settings(strict=False)
-        )
-        self.contact_client = Client(
-            self.contact_url,
-            transport=Transport(timeout=30),
-            settings=Settings(strict=False)
-        )
+        # Initialize SOAP clients with retry logic
+        self._init_clients()
+        
+    def _init_clients(self):
+        """Initialize SOAP clients with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                self.accounting_client = Client(
+                    self.accounting_url,
+                    transport=Transport(timeout=30),
+                    settings=Settings(strict=False)
+                )
+                self.archive_client = Client(
+                    self.archive_url,
+                    transport=Transport(timeout=30),
+                    settings=Settings(strict=False)
+                )
+                self.contact_client = Client(
+                    self.contact_url,
+                    transport=Transport(timeout=30),
+                    settings=Settings(strict=False)
+                )
+                return
+            except (TransportError, RequestException) as e:
+                if attempt == self.max_retries - 1:
+                    logger.error(f"Failed to initialize Yuki clients after {self.max_retries} attempts: {str(e)}")
+                    raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
+                logger.warning(f"Attempt {attempt + 1} failed, retrying in {self.retry_delay} seconds...")
+                time.sleep(self.retry_delay)
         
     def upload_document(self, file_path: str, metadata: Dict[str, Any]) -> str:
         """
@@ -77,12 +99,15 @@ class YukiService:
                     self.upload_url,
                     files=files,
                     data=data,
-                    auth=(settings.YUKI_USERNAME, settings.YUKI_PASSWORD)
+                    auth=(self.settings.YUKI_USERNAME, self.settings.YUKI_PASSWORD)
                 )
                 
                 response.raise_for_status()
                 return response.text.strip()
                 
+        except TransportError as e:
+            logger.error(f"Connection error uploading document to Yuki: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error uploading document to Yuki: {str(e)}")
             raise
@@ -131,6 +156,9 @@ class YukiService:
             result = self.accounting_client.service.CreateBooking(booking_data)
             return result
             
+        except TransportError as e:
+            logger.error(f"Connection error creating accounting entry in Yuki: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error creating accounting entry in Yuki: {str(e)}")
             raise
@@ -161,6 +189,9 @@ class YukiService:
                 vat_amount=Decimal(str(result.VATAmount)) if result.VATAmount else None,
                 document_id=result.DocumentID
             )
+        except TransportError as e:
+            logger.error(f"Connection error getting transaction details: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error getting transaction details: {str(e)}")
             raise
@@ -181,6 +212,9 @@ class YukiService:
                 transaction_id
             )
             return result
+        except TransportError as e:
+            logger.error(f"Connection error getting transaction document: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error getting transaction document: {str(e)}")
             raise
@@ -195,6 +229,9 @@ class YukiService:
         try:
             result = self.accounting_client.service.GetGLAccountScheme(self.administration_id)
             return result
+        except TransportError as e:
+            logger.error(f"Connection error getting GL account scheme: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error getting GL account scheme: {str(e)}")
             raise
@@ -215,6 +252,9 @@ class YukiService:
                 gl_account_code
             )
             return Decimal(str(result))
+        except TransportError as e:
+            logger.error(f"Connection error getting start balance: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error getting start balance: {str(e)}")
             raise
@@ -235,6 +275,9 @@ class YukiService:
                 query
             )
             return result
+        except TransportError as e:
+            logger.error(f"Connection error searching documents: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error searching documents: {str(e)}")
             raise
@@ -255,6 +298,9 @@ class YukiService:
                 document_id
             )
             return result
+        except TransportError as e:
+            logger.error(f"Connection error getting document binary data: {str(e)}")
+            raise YukiConnectionError(f"Failed to connect to Yuki API: {str(e)}")
         except Exception as e:
             logger.error(f"Error getting document binary data: {str(e)}")
             raise
