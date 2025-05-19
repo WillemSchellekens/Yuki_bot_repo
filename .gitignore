@@ -53,4 +53,39 @@ logs/
 
 # Local development
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Application specific
+uploads/
+temp/
+tmp/
+*.db
+*.sqlite3
+*.sqlite
+
+# Cache
+.cache/
+.mypy_cache/
+.ruff_cache/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local configuration
+local_settings.py
+local.py
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# System Files
+.DS_Store
+Thumbs.db
+desktop.ini 

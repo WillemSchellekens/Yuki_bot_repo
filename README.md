@@ -2,6 +2,12 @@
 
 This project provides an automation layer for integrating OCR-scanned invoices and receipts with the Yuki bookkeeping platform. It uses FastAPI for the API layer, SQLAlchemy for database operations, and integrates with Yuki's API for document and accounting entry management.
 
+## Requirements
+
+- Python 3.11 or higher
+- PostgreSQL database
+- Tesseract OCR (for OCR functionality)
+
 ## Features
 
 - Document upload and processing
@@ -14,7 +20,7 @@ This project provides an automation layer for integrating OCR-scanned invoices a
 ## Project Structure
 
 ```
-yuki_bot/
+.
 ├── alembic/                  # Database migrations
 ├── app/
 │   ├── api/                  # API endpoints
@@ -85,7 +91,8 @@ DATABASE_URL=postgresql://user:password@localhost:5432/yuki_bot
 
 # Yuki API
 YUKI_API_URL=https://api.yuki.nl
-YUKI_API_KEY=your_api_key
+YUKI_USERNAME=your_username
+YUKI_PASSWORD=your_password
 YUKI_ADMINISTRATION_ID=your_administration_id
 
 # Application
@@ -93,6 +100,11 @@ PROJECT_NAME=Yuki Bot
 VERSION=1.0.0
 API_V1_STR=/api/v1
 UPLOAD_DIR=uploads
+
+# Security
+SECRET_KEY=your_secret_key
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
 
 4. Initialize the database:
