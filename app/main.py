@@ -1,24 +1,83 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import get_settings
-from app.api.api import api_router
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from pydantic import BaseModel
+import os
+from typing import Dict, Any
+import json
+import openai
+from dotenv import load_dotenv
 
-settings = get_settings()
+# Load environment variables
+load_dotenv()
 
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
-)
+# Initialize FastAPI app
+app = FastAPI(title="Yuki Invoice Processor")
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Initialize OpenAI client
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Include API router
-app.include_router(api_router, prefix=settings.API_V1_STR) 
+class ProcessingRequest(BaseModel):
+    prompt: str
+    expected_output_format: Dict[str, Any]
+
+@app.post("/process-invoice")
+async def process_invoice(
+    file: UploadFile = File(...),
+    request: ProcessingRequest = None
+):
+    """
+    Process an invoice/receipt using OpenAI's API and return structured data.
+    """
+    try:
+        # Save the uploaded file temporarily
+        file_path = f"uploads/{file.filename}"
+        os.makedirs("uploads", exist_ok=True)
+        
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+
+        # Read the file content
+        with open(file_path, "rb") as file:
+            file_content = file.read()
+
+        # Process with OpenAI
+        response = openai.chat.completions.create(
+            model="gpt-4-vision-preview",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert at extracting information from invoices and receipts."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": request.prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{file_content.hex()}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=1000
+        )
+
+        # Extract the structured data from the response
+        extracted_data = json.loads(response.choices[0].message.content)
+
+        # Clean up
+        os.remove(file_path)
+
+        return {"status": "success", "data": extracted_data}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 

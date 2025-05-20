@@ -1,142 +1,97 @@
-# Yuki Invoice Processing Automation
+# Yuki Invoice Processor
 
-This project provides an automation layer for integrating OCR-scanned invoices and receipts with the Yuki bookkeeping platform. It uses FastAPI for the API layer, SQLAlchemy for database operations, and integrates with Yuki's API for document and accounting entry management.
-
-## Requirements
-
-- Python 3.11 or higher
-- PostgreSQL database
-- Tesseract OCR (for OCR functionality)
+A minimal FastAPI application to extract structured data from invoices and receipts using OpenAI's GPT-4 Vision API. The extracted data can then be uploaded to Yuki's accounting system.
 
 ## Features
 
-- Document upload and processing
-- OCR text extraction with confidence scoring
-- Data extraction and validation
-- Integration with Yuki API for document and accounting entry management
-- Audit logging and tracking
-- Database-backed document management
+- Upload invoices or receipts (PDF or image)
+- Extract structured data using OpenAI's GPT-4 Vision API
+- (Planned) Upload extracted data to Yuki's API
+
+## Prerequisites
+
+- Python 3.8+
+- OpenAI API key
+- Yuki API credentials (for future upload functionality)
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/yuki-invoice-processor.git
+   cd yuki-invoice-processor
+   ```
+
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On Mac/Linux:
+   source venv/bin/activate
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Create a `.env` file in the root directory with the following variables:
+   ```env
+   OPENAI_API_KEY=your_openai_api_key
+   YUKI_API_KEY=your_yuki_api_key
+   YUKI_API_URL=https://api.yuki.nl
+   UPLOAD_DIR=uploads
+   ```
+
+## Usage
+
+1. Start the server:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+2. The API will be available at `http://localhost:8000`
+
+#### Process Invoice
+- **POST** `/process-invoice`
+- **Content-Type:** `multipart/form-data`
+- **Body:**
+  - `file`: The invoice or receipt file (PDF or image)
+  - `prompt`: The extraction prompt (string)
+  - `expected_output_format`: The expected output JSON schema (object)
+
+**Example request:**
+```json
+{
+  "prompt": "Extract the following information from this invoice: invoice number, date, total amount, vendor name, line items with descriptions and amounts. Format the output as JSON.",
+  "expected_output_format": {
+    "invoice_number": "string",
+    "date": "string",
+    "total_amount": "number",
+    "vendor_name": "string",
+    "line_items": [
+      { "description": "string", "amount": "number" }
+    ]
+  }
+}
+```
 
 ## Project Structure
 
 ```
-.
-├── alembic/                  # Database migrations
+yuki-invoice-processor/
 ├── app/
-│   ├── api/                  # API endpoints
-│   │   ├── endpoints/        # API route handlers
-│   │   └── api.py            # API router configuration
-│   ├── core/                 # Core functionality
-│   │   ├── config.py         # Configuration settings
-│   │   └── logging.py        # Logging configuration
-│   ├── db/                   # Database models and session
-│   │   ├── models.py         # SQLAlchemy models
-│   │   ├── session.py        # Database session
-│   │   └── init_db.py        # Database initialization
-│   ├── services/             # Business logic services
-│   │   ├── ocr_service.py    # OCR processing
-│   │   ├── extraction_service.py  # Data extraction
-│   │   └── yuki_service.py   # Yuki API integration
-│   └── main.py               # FastAPI application
-├── alembic.ini               # Alembic configuration
-├── README.md                 # Project documentation
-├── requirements.txt          # Python dependencies
-└── run.py                    # Application entry point
+│   └── main.py
+├── uploads/
+├── .env
+├── requirements.txt
+├── README.md
+├── .gitignore
 ```
 
-## API Endpoints
-
-### Documents
-
-- `POST /api/v1/documents/upload`
-  - Upload a document for processing
-  - Returns document ID and status
-
-- `POST /api/v1/documents/{document_id}/process`
-  - Process document using OCR and data extraction
-  - Returns extracted data and confidence scores
-
-- `POST /api/v1/documents/{document_id}/validate`
-  - Validate extracted data
-  - Returns validation ID and status
-
-- `POST /api/v1/documents/{document_id}/upload-to-yuki`
-  - Upload document and create accounting entry in Yuki
-  - Returns Yuki document and booking IDs
-
-- `GET /api/v1/documents`
-  - List all documents with processing status
-  - Supports pagination with skip and limit parameters
-
-- `GET /api/v1/documents/{document_id}`
-  - Get document details including extracted data and status
-
-## Setup
-
-1. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Create a `.env` file with your configuration:
-```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/yuki_bot
-
-# Yuki API
-YUKI_API_URL=https://api.yuki.nl
-YUKI_USERNAME=your_username
-YUKI_PASSWORD=your_password
-YUKI_ADMINISTRATION_ID=your_administration_id
-
-# Application
-PROJECT_NAME=Yuki Bot
-VERSION=1.0.0
-API_V1_STR=/api/v1
-UPLOAD_DIR=uploads
-
-# Security
-SECRET_KEY=your_secret_key
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-```
-
-4. Initialize the database:
-```bash
-# Create database tables
-alembic upgrade head
-
-# Initialize with default data
-python -c "from app.db.init_db import init_db; from app.db.session import SessionLocal; init_db(SessionLocal())"
-```
-
-5. Run the application:
-```bash
-python run.py
-```
-
-The API will be available at `http://localhost:8000`. API documentation is available at `http://localhost:8000/docs`.
-
-## Development
-
-### Database Migrations
-
-Create a new migration:
-```bash
-alembic revision --autogenerate -m "description"
-```
-
-Apply migrations:
-```bash
-alembic upgrade head
-```
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details. 
+## Notes
+- All legacy code, tests, and database files have been removed for a minimal, focused workflow.
+- The only code is in `app/main.py`.
+- The `uploads/` directory is used for temporary file storage.
+- Yuki upload functionality is planned for future implementation.
