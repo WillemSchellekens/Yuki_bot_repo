@@ -89,4 +89,7 @@ local.py
 # System Files
 .DS_Store
 Thumbs.db
-desktop.ini 
+desktop.ini
+
+# Project specific
+processed_results.json 
