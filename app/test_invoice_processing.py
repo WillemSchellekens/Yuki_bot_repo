@@ -1,21 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from pydantic import BaseModel
 import os
-from typing import Dict, Any
+from openai import OpenAI
+from dotenv import load_dotenv
 import json
 import base64
 from pathlib import Path
 import pymupdf
 from PIL import Image
 import io
-from openai import OpenAI
-from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-
-# Initialize FastAPI app
-app = FastAPI(title="Yuki Invoice Processor")
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -94,46 +88,19 @@ def convert_pdf_to_image(pdf_path: str) -> bytes:
         print(f"Error converting PDF to image: {str(e)}")
         raise
 
-# Pydantic model for data validation
-class ProcessingRequest(BaseModel):
-    prompt: str
-    expected_output_format: Dict[str, Any]
-
-@app.post("/process-invoice")
-async def process_invoice(
-    file: UploadFile = File(...),
-    request: str = Form(...)
-):
+def process_invoice(file_path: str, prompt: str = EXAMPLE_PROMPT, expected_format: dict = EXAMPLE_OUTPUT_FORMAT):
     """
-    Process an invoice/receipt using OpenAI's API and return structured data.
+    Process an invoice file (PDF or image) using OpenAI's API and return structured data.
     
-    Example request body:
-    {
-        "prompt": "Please extract all information from this invoice...",
-        "expected_output_format": {
-            "invoice_number": "string",
-            "date": "string",
-            ...
-        }
-    }
+    Args:
+        file_path (str): Path to the invoice file
+        prompt (str): Custom prompt for processing
+        expected_format (dict): Expected output format structure
+    
+    Returns:
+        dict: Extracted structured data from the invoice
     """
     try:
-        # Parse the request data
-        request_data = json.loads(request)
-        prompt = request_data.get('prompt', EXAMPLE_PROMPT)
-        expected_format = request_data.get('expected_output_format', EXAMPLE_OUTPUT_FORMAT)
-
-        if not prompt or not expected_format:
-            raise HTTPException(status_code=400, detail="Missing prompt or expected output format")
-
-        # Save the uploaded file temporarily
-        file_path = f"uploads/{file.filename}"
-        os.makedirs("uploads", exist_ok=True)
-        
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
-
         # Determine file type and get content
         file_extension = Path(file_path).suffix.lower()
         
@@ -147,7 +114,7 @@ async def process_invoice(
                 file_content = file.read()
             mime_type = "image/jpeg"
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_extension}")
+            raise ValueError(f"Unsupported file type: {file_extension}")
 
         # Convert to base64
         base64_content = base64.b64encode(file_content).decode('utf-8')
@@ -155,7 +122,7 @@ async def process_invoice(
         # Process with OpenAI
         print("Sending request to API...")
         response = client.chat.completions.create(
-            model="gpt-4o", 
+            model="gpt-4o",
             messages=[
                 {
                     "role": "system",
@@ -182,10 +149,11 @@ async def process_invoice(
         
         print("Received response from API.")
         
-        # Extract and clean the response
+        # Extract the structured data from the response
         try:
+            # Get the content from the response
             content = response.choices[0].message.content
-            print("Raw response content:", content)
+            print("Raw response content:", content)  # Debug print
             
             # Clean the content by removing markdown code block markers
             content = content.strip()
@@ -197,28 +165,52 @@ async def process_invoice(
                 content = content[:-3]  # Remove trailing ```
             content = content.strip()
             
-            # Parse the cleaned content as JSON
+            # Try to parse the content as JSON
             extracted_data = json.loads(content)
             
-            # Clean up the temporary file
-            os.remove(file_path)
+            # Print the extracted data in a readable format
+            print("\nExtracted Data:")
+            print(json.dumps(extracted_data, indent=2))
             
-            return {"status": "success", "data": extracted_data}
-            
+            return extracted_data
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON response: {str(e)}")
             print("Raw response content:", content)
-            raise HTTPException(status_code=500, detail="Error parsing API response")
+            raise
         except Exception as e:
             print(f"Error processing response: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise
 
     except Exception as e:
-        # Clean up the temporary file in case of error
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error processing invoice: {str(e)}")
+        raise
+
+def process_uploads_folder():
+    """
+    Process all files in the uploads folder.
+    """
+    uploads_dir = "uploads"
+    if not os.path.exists(uploads_dir):
+        print(f"Error: Uploads directory not found at {uploads_dir}")
+        return
+
+    # Get all files in the uploads directory
+    files = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+    
+    if not files:
+        print("No files found in uploads directory")
+        return
+
+    # Process each file
+    for file in files:
+        file_path = os.path.join(uploads_dir, file)
+        print(f"\nProcessing file: {file}")
+        try:
+            result = process_invoice(file_path)
+            print(f"\nSuccessfully processed {file}")
+        except Exception as e:
+            print(f"\nFailed to process {file}: {str(e)}")
+            continue
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    process_uploads_folder() 
