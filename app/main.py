@@ -8,10 +8,65 @@ from PIL import Image
 import io
 from openai import OpenAI
 from dotenv import load_dotenv
-import requests  # For Yuki API integration
+import requests
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
+
+# Yuki API Configuration
+YUKI_API_URL = os.getenv("YUKI_API_URL", "https://api.yukiworks.nl")  # Replace with actual Yuki API URL
+YUKI_API_KEY = os.getenv("YUKI_API_KEY")
+YUKI_TENANT_ID = os.getenv("YUKI_TENANT_ID")
+
+class YukiClient:
+    """
+    Basic client for interacting with Yuki API.
+    TODO: Add more comprehensive error handling and retry logic
+    TODO: Add proper authentication handling
+    TODO: Add rate limiting
+    """
+    def __init__(self, api_url: str, api_key: str, tenant_id: str):
+        self.api_url = api_url
+        self.api_key = api_key
+        self.tenant_id = tenant_id
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "X-Tenant-ID": tenant_id
+        }
+
+    def upload_invoice(self, invoice_data: dict) -> bool:
+        """
+        Upload invoice data to Yuki.
+        This is a basic implementation that will be expanded.
+        
+        Args:
+            invoice_data (dict): The extracted invoice data
+            
+        Returns:
+            bool: True if upload was successful, False otherwise
+        """
+        try:
+            # TODO: Map the extracted data to Yuki's expected format
+            # For now, we'll just print what we would send
+            print("\nPreparing to upload to Yuki:")
+            print(f"API URL: {self.api_url}")
+            print("Data to upload:", json.dumps(invoice_data, indent=2))
+            
+            # TODO: Implement actual API call
+            # response = requests.post(
+            #     f"{self.api_url}/invoices",
+            #     headers=self.headers,
+            #     json=invoice_data
+            # )
+            # response.raise_for_status()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error uploading to Yuki: {str(e)}")
+            return False
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -174,26 +229,13 @@ def process_invoice_file(file_path: str, prompt: str = EXAMPLE_PROMPT, expected_
         print(f"Error processing invoice: {str(e)}")
         raise
 
-def upload_to_yuki(data: dict) -> bool:
-    """
-    Upload extracted invoice data to Yuki API.
-    
-    Args:
-        data (dict): Extracted invoice data
-    
-    Returns:
-        bool: True if upload was successful, False otherwise
-    """
-    # TODO: Implement Yuki API integration
-    # This is a placeholder for the actual Yuki API integration
-    print("TODO: Implement Yuki API upload")
-    print("Data to upload:", json.dumps(data, indent=2))
-    return True
-
 def process_uploads_folder():
     """
     Process all files in the uploads folder and upload extracted data to Yuki.
     """
+    # Initialize Yuki client
+    yuki_client = YukiClient(YUKI_API_URL, YUKI_API_KEY, YUKI_TENANT_ID)
+    
     uploads_dir = "uploads"
     if not os.path.exists(uploads_dir):
         print(f"Error: Uploads directory not found at {uploads_dir}")
@@ -220,7 +262,7 @@ def process_uploads_folder():
             
             # Upload to Yuki
             print(f"Uploading data to Yuki for {file}...")
-            upload_success = upload_to_yuki(result)
+            upload_success = yuki_client.upload_invoice(result)
             
             if upload_success:
                 print(f"Successfully processed and uploaded {file}")

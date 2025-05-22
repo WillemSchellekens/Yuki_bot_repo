@@ -4,3 +4,4 @@ OPENAI_API_KEY=your_openai_api_key_here
 # Yuki API Configuration
 YUKI_API_KEY=your_yuki_api_key_here
 YUKI_API_URL=https://api.yuki.nl
+YUKI_UPLOAD_WEBSERVICE_URL=https://api.yukiworks.nl/docs/Upload.aspx
